@@ -24,6 +24,7 @@ jobs:
         run: |
           mkdir publish
           cp -a extracted/NeedleVoice/. publish/
+          rm -rf publish/.github
           cd publish
           git init -b source-unpacked
           git config user.name "github-actions[bot]"
