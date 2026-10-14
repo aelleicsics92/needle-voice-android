@@ -26,6 +26,27 @@ jobs:
           unzip -q NeedleVoice-CloudBuild.zip -d extracted
           test -f extracted/NeedleVoice/settings.gradle.kts
 
+      - name: Align Java and Kotlin targets
+        run: |
+          python3 - <<'PY'
+          path = "extracted/NeedleVoice/app/build.gradle.kts"
+          with open(path, encoding="utf-8") as f:
+              content = f.read()
+          old = "    defaultConfig {"
+          new = """    compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              kotlinOptions { jvmTarget = "17" }
+
+              defaultConfig {"""
+          if old not in content:
+              raise SystemExit("Non trovo defaultConfig nel file Gradle")
+          content = content.replace(old, new, 1)
+          with open(path, "w", encoding="utf-8") as f:
+              f.write(content)
+          PY
+
       - name: Build APK
         uses: gradle/gradle-build-action@v3
         with:
