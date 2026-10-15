@@ -1,0 +1,7 @@
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut android:shortcutId="open_app" android:enabled="true" android:icon="@drawable/ic_settings"
+        android:shortcutShortLabel="@string/open_app" android:shortcutLongLabel="@string/open_app_long">
+        <intent android:action="android.intent.action.VIEW" android:targetPackage="it.dispensa.needlevoice"
+            android:targetClass="it.dispensa.needlevoice.MainActivity" />
+    </shortcut>
+</shortcuts>
