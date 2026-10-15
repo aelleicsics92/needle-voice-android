@@ -11,8 +11,15 @@ android {
         applicationId = "it.dispensa.needlevoice"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.1"
+        versionCode = 9
+        versionName = "2.0"
+    }
+    signingConfigs {
+        create("needle") { storeFile = file("needle.jks"); storePassword = "needle2026"; keyAlias = "needle"; keyPassword = "needle2026" }
+    }
+    buildTypes {
+        getByName("debug") { signingConfig = signingConfigs.getByName("needle") }
+        getByName("release") { signingConfig = signingConfigs.getByName("needle"); isMinifyEnabled = false }
     }
     buildFeatures { compose = true }
     compileOptions {
@@ -30,4 +37,7 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.animation:animation")
+    implementation("androidx.camera:camera-camera2:1.3.4")
+    implementation("androidx.camera:camera-lifecycle:1.3.4")
+    implementation("androidx.camera:camera-view:1.3.4")
 }

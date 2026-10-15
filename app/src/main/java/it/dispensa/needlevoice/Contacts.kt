@@ -5,7 +5,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.provider.ContactsContract
 
-class Contacts(private val ctx: Context) {
+class Contacts(private val ctx: Context, private val store: Store? = null) {
     data class Person(val name: String, val number: String)
     data class Result(val person: Person?, val suggestions: List<String>, val noPermission: Boolean = false)
 
@@ -22,7 +22,7 @@ class Contacts(private val ctx: Context) {
 
     /** Nome parlato (anche storpiato) o numero detto a voce -> contatto. */
     fun resolve(spoken: String): Result {
-        val t = spoken.trim()
+        val t = (store?.aliases()?.get(Fuzzy.clean(spoken)) ?: spoken).trim()
         Fuzzy.spokenNumber(t)?.let { return Result(Person(it, it), emptyList()) }
         if (Regex("^\\+?[0-9 ()-]{6,}$").matches(t)) return Result(Person(t, t), emptyList())
         if (t.isBlank()) return Result(null, emptyList())

@@ -17,23 +17,29 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-/** Lanciata dall'icona: ascolta subito, esegue, si chiude. */
+/** Lanciata dall'icona, dal widget o dal tasto rapido: ascolta subito (o apre la barra di testo), esegue, si chiude. */
 class ListenActivity : ComponentActivity() {
     private lateinit var asst: Assistant
     private val h = Handler(Looper.getMainLooper())
+    private var typeMode by mutableStateOf(false)
+    private var closeTask: Runnable? = null
 
-    private val permAll = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { if (hasMic()) { listen() } else { asst.result = "Serve il permesso microfono" } }
-    private val permContacts = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { asst.resumePending(asst.actions.contacts.hasPermission()) { ok -> closeSoon(ok) } }
+    private val permAll = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { if (hasMic()) { if (!typeMode) listen() } else { asst.result = "Serve il permesso microfono" } }
+    private val permOne = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { r -> asst.resumePending(r.values.all { it }) }
 
     private fun hasMic() = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
@@ -41,24 +47,35 @@ class ListenActivity : ComponentActivity() {
         super.onCreate(b)
         enableEdgeToEdge(SystemBarStyle.dark(AColor.TRANSPARENT), SystemBarStyle.dark(AColor.TRANSPARENT))
         asst = Assistant(this)
+        typeMode = intent.getStringExtra("mode") == "type"
         setContent {
-            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.62f)).clickable(remember { MutableInteractionSource() }, null) { finish() }, Alignment.BottomCenter) {
-                Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(12.dp).glass(34.dp, 0.10f).background(P.Ink.copy(alpha = 0.92f)).clickable(remember { MutableInteractionSource() }, null) { }.padding(20.dp),
+            var typed by remember { mutableStateOf("") }
+            val fr = remember { FocusRequester() }
+            LaunchedEffect(typeMode) { if (typeMode) try { fr.requestFocus() } catch (_: Exception) { } }
+            fun send() { if (typed.isNotBlank()) { cancelClose(); asst.typed(typed, { p -> permOne.launch(arrayOf(p)) }) { ok -> closeSoon(ok) }; typed = "" } }
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.62f)).clickable(remember { MutableInteractionSource() }, null) { finishAndRemoveTask() }, Alignment.BottomCenter) {
+                Column(Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(12.dp).glass(34.dp, 0.10f).background(P.Ink.copy(alpha = 0.92f)).clickable(remember { MutableInteractionSource() }, null) { }.padding(18.dp),
                     horizontalAlignment = Alignment.CenterHorizontally) {
-                    Orb(asst.level, asst.active, 230.dp) { listen() }
-                    Text(if (asst.active && asst.heard.isBlank()) "Ti ascolto…" else asst.heard, color = P.Txt, fontSize = 22.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center, minLines = 2, modifier = Modifier.fillMaxWidth())
-                    Text(asst.result, color = P.Dim, fontSize = 16.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 14.dp))
+                    if (!typeMode) Orb(asst.level, asst.active, 210.dp) { cancelClose(); listen() }
+                    Text(if (asst.active && asst.heard.isBlank()) "Ti ascolto…" else asst.heard, color = P.Txt, fontSize = 21.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center, minLines = if (typeMode) 1 else 2, modifier = Modifier.fillMaxWidth())
+                    Text(asst.result, color = if (asst.thinking) P.Pink else P.Dim, fontSize = 16.sp, lineHeight = 22.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 12.dp))
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.weight(1f)) { GField(typed, { typed = it }, "Scrivi un comando…", onEnter = { send() }, modifier = Modifier.focusRequester(fr)) }
+                        Spacer(Modifier.width(10.dp))
+                        Box(Modifier.size(54.dp).clip(RoundedCornerShape(27.dp)).background(P.grad).clickable { if (typed.isBlank()) { typeMode = false; cancelClose(); listen() } else send() }, Alignment.Center) { NIcon(if (typed.isBlank()) Ic.Mic else Ic.Spark, Color.White, 24.dp) }
+                    }
+                    Spacer(Modifier.height(10.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        GhostButton("Apri app", Modifier.weight(1f)) { startActivity(Intent(this@ListenActivity, MainActivity::class.java)); finish() }
-                        GhostButton("Chiudi", Modifier.weight(1f)) { finish() }
+                        GhostButton("Apri app", Modifier.weight(1f)) { startActivity(Intent(this@ListenActivity, MainActivity::class.java)); finishAndRemoveTask() }
+                        GhostButton("Chiudi", Modifier.weight(1f)) { finishAndRemoveTask() }
                     }
                 }
             }
         }
     }
 
-    override fun onResume() { super.onResume(); if (!asst.busy) start() }
-    override fun onNewIntent(i: Intent) { super.onNewIntent(i); asst.busy = false; start() }
+    override fun onResume() { super.onResume(); if (!asst.busy && !typeMode) start() }
+    override fun onNewIntent(i: Intent) { super.onNewIntent(i); typeMode = i.getStringExtra("mode") == "type"; asst.busy = false; if (!typeMode) start() }
 
     private fun start() {
         val need = mutableListOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.READ_CONTACTS)
@@ -68,12 +85,14 @@ class ListenActivity : ComponentActivity() {
         if (hasMic()) { listen() } else { asst.result = "Serve il permesso microfono (Impostazioni, App, Needle)" }
     }
 
-    private fun listen() = asst.listen(
-        onAsk = { q -> startActivity(Intent(this, MainActivity::class.java).putExtra("ask", q)); finish() },
-        onNeedContacts = { permContacts.launch(arrayOf(Manifest.permission.READ_CONTACTS)) },
-        onFinished = { ok -> closeSoon(ok) })
+    private fun listen() = asst.listen({ p -> permOne.launch(arrayOf(p)) }) { ok -> closeSoon(ok) }
 
-    private fun closeSoon(ok: Boolean) { h.postDelayed({ finish() }, if (ok) 2200 else 2600) }
+    private fun cancelClose() { closeTask?.let { h.removeCallbacks(it) }; closeTask = null }
+    private fun closeSoon(ok: Boolean) {
+        cancelClose()
+        val ms = (if (ok) 2200L else 2800L).coerceAtLeast(asst.result.length * 45L)
+        closeTask = Runnable { finishAndRemoveTask() }.also { h.postDelayed(it, ms) }
+    }
 
     override fun onDestroy() { h.removeCallbacksAndMessages(null); asst.release(); super.onDestroy() }
 }

@@ -1,4 +1,7 @@
 <resources>
     <string name="open_app">Apri Needle</string>
     <string name="open_app_long">Apri app (impostazioni, note, AI)</string>
+    <string name="access_desc">Permette a Needle di leggere lo schermo e toccare i pulsanti nelle app quando glielo chiedi a voce (ad esempio accendere una luce in Tapo o cercare in un\'app).</string>
+    <string name="tile_label">Ascolta</string>
+    <string name="widget_hint">Chiedi a Needle…</string>
 </resources>

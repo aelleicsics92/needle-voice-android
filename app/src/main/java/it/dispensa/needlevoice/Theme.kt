@@ -52,20 +52,29 @@ fun Aurora(content: @Composable BoxScope.() -> Unit) {
     }, content = content)
 }
 
-/** Sfera di ascolto: gira, respira e pulsa con il volume della voce. */
+/** Visualizzatore vocale: anello di barre che pulsano con la voce, sfumato viola-rosa-pesca. */
 @Composable
 fun Orb(level: Float, active: Boolean, diameter: Dp, onClick: () -> Unit) {
     val t = rememberInfiniteTransition(label = "orb")
-    val rot by t.animateFloat(0f, 360f, infiniteRepeatable(tween(if (active) 3200 else 10000, easing = LinearEasing)), label = "rot")
-    val breathe by t.animateFloat(0.95f, 1.05f, infiniteRepeatable(tween(2400, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "br")
-    val lv by animateFloatAsState(if (active) level else 0f, tween(120), label = "lv")
+    val rot by t.animateFloat(0f, 360f, infiniteRepeatable(tween(if (active) 9000 else 26000, easing = LinearEasing)), label = "rot")
+    val phase by t.animateFloat(0f, 6.2832f, infiniteRepeatable(tween(if (active) 1500 else 5200, easing = LinearEasing)), label = "ph")
+    val breathe by t.animateFloat(0.97f, 1.03f, infiniteRepeatable(tween(2600, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "br")
+    val lv by animateFloatAsState(if (active) level else 0f, tween(90), label = "lv")
     Canvas(Modifier.size(diameter).clickable(remember { MutableInteractionSource() }, null) { onClick() }) {
-        val c = center; val r = size.minDimension * 0.21f * breathe * (1f + lv * 0.38f)
-        drawCircle(Brush.radialGradient(listOf(P.Pink.copy(alpha = 0.30f + lv * 0.2f), P.Violet.copy(alpha = 0.12f), Color.Transparent), c, r * 3.2f), r * 3.2f, c)
-        for (i in 1..3) drawCircle(P.Violet.copy(alpha = (0.22f - i * 0.05f).coerceAtLeast(0.02f) * (1f + lv * 2f)), r * (1.2f + i * 0.30f + lv * 0.2f), c, style = Stroke(width = 2.5f))
-        rotate(rot, c) { drawCircle(Brush.sweepGradient(listOf(P.Violet, P.Pink, P.Peach, P.Pink, P.Violet), c), r, c) }
-        drawCircle(Brush.radialGradient(listOf(Color.White.copy(alpha = 0.55f), Color.Transparent), c - Offset(r * 0.35f, r * 0.4f), r * 1.05f), r, c)
-        drawCircle(Color.Black.copy(alpha = 0.10f), r * 0.55f, c + Offset(0f, r * 0.12f))
+        val c = center; val base = size.minDimension * 0.19f * breathe
+        drawCircle(Brush.radialGradient(listOf(P.Violet.copy(alpha = 0.30f + lv * 0.25f), P.Pink.copy(alpha = 0.10f), Color.Transparent), c, base * 3.6f), base * 3.6f, c)
+        val n = 60
+        for (i in 0 until n) {
+            val f = i.toFloat() / n; val a = f * 6.2832f + rot * 0.01745f
+            val w = (Math.sin((a * 3f + phase).toDouble()) * 0.5 + 0.5).toFloat() * 0.6f + (Math.sin((a * 7f - phase * 1.3f).toDouble()) * 0.5 + 0.5).toFloat() * 0.4f
+            val amp = if (active) 0.22f + lv * 1.25f else 0.10f
+            val len = base * (0.10f + 0.9f * w * amp)
+            val r0 = base * 1.08f; val r1 = r0 + len
+            val col = when { f < 0.33f -> lerp(P.Violet, P.Pink, f / 0.33f); f < 0.66f -> lerp(P.Pink, P.Peach, (f - 0.33f) / 0.33f); else -> lerp(P.Peach, P.Violet, (f - 0.66f) / 0.34f) }
+            drawLine(col, Offset(c.x + Math.cos(a.toDouble()).toFloat() * r0, c.y + Math.sin(a.toDouble()).toFloat() * r0), Offset(c.x + Math.cos(a.toDouble()).toFloat() * r1, c.y + Math.sin(a.toDouble()).toFloat() * r1), base * 0.085f, StrokeCap.Round)
+        }
+        drawCircle(Color.White.copy(alpha = 0.16f), base * 0.98f, c, style = Stroke(width = 2f))
+        drawCircle(Brush.radialGradient(listOf(P.Pink.copy(alpha = 0.22f + lv * 0.2f), Color.Transparent), c, base), base * 0.96f, c)
     }
 }
 
@@ -96,7 +105,7 @@ fun SectionLabel(s: String) = Text(s.uppercase(), color = P.Dim, fontSize = 11.s
 
 /** Campo di testo: seleziona tutto al focus, Invio conferma. */
 @Composable
-fun GField(value: String, onChange: (String) -> Unit, hint: String, secret: Boolean = false, onEnter: (() -> Unit)? = null) {
+fun GField(value: String, onChange: (String) -> Unit, hint: String, secret: Boolean = false, onEnter: (() -> Unit)? = null, modifier: Modifier = Modifier) {
     var tf by remember { mutableStateOf(TextFieldValue(value)) }
     LaunchedEffect(value) { if (value != tf.text) tf = TextFieldValue(value) }
     BasicTextField(
@@ -104,7 +113,7 @@ fun GField(value: String, onChange: (String) -> Unit, hint: String, secret: Bool
         textStyle = TextStyle(color = P.Txt, fontSize = 16.sp), cursorBrush = SolidColor(P.Pink),
         visualTransformation = if (secret) PasswordVisualTransformation() else VisualTransformation.None,
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { onEnter?.invoke() }),
-        modifier = Modifier.fillMaxWidth().glass(18.dp, 0.07f).onFocusChanged { if (it.isFocused) tf = tf.copy(selection = TextRange(0, tf.text.length)) }.padding(horizontal = 18.dp, vertical = 15.dp),
+        modifier = modifier.fillMaxWidth().glass(18.dp, 0.07f).onFocusChanged { if (it.isFocused) tf = tf.copy(selection = TextRange(0, tf.text.length)) }.padding(horizontal = 18.dp, vertical = 15.dp),
         decorationBox = { inner -> Box { if (tf.text.isEmpty()) Text(hint, color = P.Dim, fontSize = 16.sp); inner() } })
 }
 

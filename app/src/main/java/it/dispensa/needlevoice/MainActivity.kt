@@ -2,7 +2,6 @@ package it.dispensa.needlevoice
 
 import android.Manifest
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.graphics.Color as AColor
 import android.net.Uri
 import android.os.Build
@@ -31,28 +30,28 @@ class MainActivity : ComponentActivity() {
     private lateinit var asst: Assistant
     private var tab by mutableIntStateOf(0)
     private var aiQuestion by mutableStateOf("")
-    private var contactsOk by mutableStateOf(false)
 
-    private val askPerms = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
-        contactsOk = asst.actions.contacts.hasPermission(); asst.resumePending(contactsOk) { }
+    private val askPerms = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { r ->
+        asst.resumePending(r.values.all { it })
+        tab = tab  // ridisegna
     }
 
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
         enableEdgeToEdge(SystemBarStyle.dark(AColor.TRANSPARENT), SystemBarStyle.dark(AColor.TRANSPARENT))
         asst = Assistant(this)
-        contactsOk = asst.actions.contacts.hasPermission()
         intent.getStringExtra("ask")?.let { aiQuestion = it; tab = 3 }
+        if (intent.getBooleanExtra("brain", false)) tab = 3
         setContent {
             Aurora {
                 Column(Modifier.fillMaxSize().systemBarsPadding().imePadding()) {
                     Box(Modifier.weight(1f)) {
                         when (tab) {
-                            0 -> VoiceScreen(asst, contactsOk, { q -> aiQuestion = q; tab = 3 }, { needContacts() }, { needContacts() })
+                            0 -> VoiceScreen(asst, { p -> need(p) }, { p -> need(p) })
                             1 -> NotesScreen(asst)
                             2 -> HomeScreen(asst) { tab = 4 }
-                            3 -> AiScreen(asst, aiQuestion)
-                            else -> SettingsScreen(asst, contactsOk) { startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))) }
+                            3 -> BrainScreen(asst, aiQuestion) { tab = 4 }
+                            else -> SettingsScreen(asst, { appSettings() }, { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) })
                         }
                         NavBar(tab, { tab = it }, Modifier.align(Alignment.BottomCenter))
                     }
@@ -61,13 +60,15 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onNewIntent(i: Intent) { super.onNewIntent(i); i.getStringExtra("ask")?.let { aiQuestion = it; tab = 3 } }
-    override fun onResume() { super.onResume(); contactsOk = asst.actions.contacts.hasPermission() }
+    override fun onNewIntent(i: Intent) { super.onNewIntent(i); i.getStringExtra("ask")?.let { aiQuestion = it; tab = 3 }; if (i.getBooleanExtra("brain", false)) tab = 3 }
 
-    private fun needContacts() {
-        val l = mutableListOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.READ_CONTACTS)
-        if (Build.VERSION.SDK_INT >= 33) l.add(Manifest.permission.POST_NOTIFICATIONS)
-        askPerms.launch(l.filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }.toTypedArray().ifEmpty { arrayOf(Manifest.permission.READ_CONTACTS) })
+    private fun appSettings() = startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+
+    private fun need(p: String) {
+        if (p == "ACCESS") { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)); return }
+        val l = mutableListOf(p)
+        if (p == Manifest.permission.READ_CONTACTS) { l.add(Manifest.permission.RECORD_AUDIO); if (Build.VERSION.SDK_INT >= 33) l.add(Manifest.permission.POST_NOTIFICATIONS) }
+        askPerms.launch(l.filter { checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED }.toTypedArray().ifEmpty { arrayOf(p) })
     }
 
     override fun onDestroy() { asst.release(); super.onDestroy() }
@@ -75,7 +76,7 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun NavBar(sel: Int, onSel: (Int) -> Unit, modifier: Modifier = Modifier) {
-    val items = listOf("Voce" to Ic.Mic, "Note" to Ic.Note, "Casa" to Ic.Home, "AI" to Ic.Spark, "Opzioni" to Ic.Gear)
+    val items = listOf("Voce" to Ic.Mic, "Note" to Ic.Note, "Casa" to Ic.Home, "Cervello" to Ic.Spark, "Opzioni" to Ic.Gear)
     Row(modifier.padding(horizontal = 18.dp, vertical = 14.dp).fillMaxWidth().glass(32.dp, 0.10f).padding(6.dp), horizontalArrangement = Arrangement.SpaceBetween) {
         items.forEachIndexed { i, (label, ic) ->
             val on = i == sel

@@ -63,4 +63,33 @@ class Store(ctx: Context) {
     var userName: String
         get() = p.getString("user_name", "").orEmpty()
         set(v) = p.edit().putString("user_name", v.trim()).apply()
+
+    var groqKey: String
+        get() = p.getString("k_groq", "").orEmpty()
+        set(v) = p.edit().putString("k_groq", v.trim()).apply()
+    var orKey: String
+        get() = p.getString("k_or", "").orEmpty()
+        set(v) = p.edit().putString("k_or", v.trim()).apply()
+    var mistralKey: String
+        get() = p.getString("k_mistral", "").orEmpty()
+        set(v) = p.edit().putString("k_mistral", v.trim()).apply()
+    var lastCouncil: String
+        get() = p.getString("last_council", "").orEmpty()
+        set(v) = p.edit().putString("last_council", v).apply()
+    var lastCrash: String
+        get() = p.getString("last_crash", "").orEmpty()
+        set(v) = p.edit().putString("last_crash", v).apply()
+    var parking: String
+        get() = p.getString("parking", "").orEmpty()
+        set(v) = p.edit().putString("parking", v).apply()
+
+    // Memoria che evolve: fatti, alias appresi, statistiche d'uso
+    fun facts(): List<String> = try { JSONArray(p.getString("facts", "[]")).let { a -> (0 until a.length()).map { a.getString(it) } } } catch (_: Exception) { emptyList() }
+    fun addFact(f: String) { val l = (facts() + f.trim()).distinct().takeLast(60); p.edit().putString("facts", JSONArray(l).toString()).apply() }
+    fun removeFact(f: String) { p.edit().putString("facts", JSONArray(facts().filter { it != f }).toString()).apply() }
+    fun aliases(): Map<String, String> = try { JSONObject(p.getString("aliases", "{}")).let { o -> o.keys().asSequence().associateWith { o.getString(it) } } } catch (_: Exception) { emptyMap() }
+    fun putAlias(spoken: String, real: String) { val m = aliases().toMutableMap(); m[spoken.lowercase().trim()] = real; p.edit().putString("aliases", JSONObject(m as Map<*, *>).toString()).apply() }
+    fun removeAlias(spoken: String) { val m = aliases().toMutableMap(); m.remove(spoken); p.edit().putString("aliases", JSONObject(m as Map<*, *>).toString()).apply() }
+    fun usage(): Map<String, Int> = try { JSONObject(p.getString("usage", "{}")).let { o -> o.keys().asSequence().associateWith { o.getInt(it) } } } catch (_: Exception) { emptyMap() }
+    fun bump(key: String) { val m = usage().toMutableMap(); m[key] = (m[key] ?: 0) + 1; p.edit().putString("usage", JSONObject(m as Map<*, *>).toString()).apply() }
 }

@@ -26,11 +26,13 @@ object Timers {
         nm.createNotificationChannel(ch)
     }
 
-    fun set(ctx: Context, store: Store, ms: Long): Long {
+    fun set(ctx: Context, store: Store, ms: Long, label: String = ""): Long {
         channel(ctx)
         val id = System.currentTimeMillis() % 1_000_000_000L; val at = System.currentTimeMillis() + ms
         val show = PendingIntent.getActivity(ctx, 0, Intent(ctx, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
-        ctx.getSystemService(AlarmManager::class.java).setAlarmClock(AlarmManager.AlarmClockInfo(at, show), pi(ctx, id, ACT_FIRE))
+        val am = ctx.getSystemService(AlarmManager::class.java)
+        val fire = PendingIntent.getBroadcast(ctx, id.toInt(), Intent(ctx, TimerReceiver::class.java).setAction(ACT_FIRE).putExtra("id", id).putExtra("label", label), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        try { am.setAlarmClock(AlarmManager.AlarmClockInfo(at, show), fire) } catch (_: SecurityException) { am.set(AlarmManager.RTC_WAKEUP, at, fire) }
         store.addTimer(id, at); return id
     }
 
@@ -49,7 +51,7 @@ class TimerReceiver : BroadcastReceiver() {
         Store(ctx).removeTimer(id); Timers.channel(ctx)
         val stop = PendingIntent.getBroadcast(ctx, id.toInt() + 1, Intent(ctx, TimerReceiver::class.java).setAction(Timers.ACT_STOP).putExtra("id", id), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val open = PendingIntent.getActivity(ctx, 0, Intent(ctx, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
-        val n = Notification.Builder(ctx, Timers.CH).setSmallIcon(android.R.drawable.ic_lock_idle_alarm).setContentTitle("Timer terminato")
+        val n = Notification.Builder(ctx, Timers.CH).setSmallIcon(android.R.drawable.ic_lock_idle_alarm).setContentTitle(i.getStringExtra("label")?.takeIf { it.isNotBlank() } ?: "Timer terminato")
             .setContentText("Tocca per fermare").setContentIntent(open).setCategory(Notification.CATEGORY_ALARM).setTimeoutAfter(60_000)
             .addAction(Notification.Action.Builder(null, "Ferma", stop).build()).setAutoCancel(true).build()
         n.flags = n.flags or Notification.FLAG_INSISTENT

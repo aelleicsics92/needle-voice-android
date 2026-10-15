@@ -1,5 +1,6 @@
 package it.dispensa.needlevoice
 
+import java.util.Calendar
 import java.util.Locale
 
 sealed class Cmd {
@@ -15,7 +16,7 @@ sealed class Cmd {
     data class WhatsApp(val to: String, val text: String) : Cmd()
     data class Sms(val to: String, val text: String) : Cmd()
     data class Call(val to: String) : Cmd()
-    data class Weather(val city: String) : Cmd()
+    data class Weather(val city: String, val day: Int = 0) : Cmd()
     data class Navigate(val dest: String) : Cmd()
     data class Calendar(val title: String) : Cmd()
     data class OpenApp(val name: String) : Cmd()
@@ -23,6 +24,20 @@ sealed class Cmd {
     data class Play(val app: String, val query: String) : Cmd()
     data class WebSearch(val query: String) : Cmd()
     data class AskAi(val question: String) : Cmd()
+    data class Alarm(val hour: Int, val min: Int, val label: String) : Cmd()
+    object CancelAlarms : Cmd()
+    data class Remind(val atMs: Long, val text: String) : Cmd()
+    data class Email(val to: String, val subject: String, val body: String) : Cmd()
+    data class Camera(val front: Boolean) : Cmd()
+    data class Torch(val on: Boolean) : Cmd()
+    data class Volume(val action: String, val level: Int?) : Cmd()
+    object Briefing : Cmd()
+    data class Agenda(val day: Int) : Cmd()
+    data class Parking(val save: Boolean) : Cmd()
+    data class Tv(val app: String) : Cmd()
+    data class Remember(val fact: String) : Cmd()
+    data class Panel(val which: String) : Cmd()
+    data class Agent(val goal: String) : Cmd()
     object Unknown : Cmd()
 }
 
@@ -37,6 +52,42 @@ object Parser {
     fun parseBest(alts: List<String>): Pair<String, Cmd> {
         for (a in alts) { val c = parse(a); if (c != Cmd.Unknown) return a to c }
         return (alts.firstOrNull().orEmpty()) to Cmd.Unknown
+    }
+
+
+    private val UNITS = listOf("zero", "uno", "due", "tre", "quattro", "cinque", "sei", "sette", "otto", "nove", "dieci", "undici", "dodici", "tredici", "quattordici", "quindici", "sedici", "diciassette", "diciotto", "diciannove")
+    private val WORDNUM: Map<String, Int> by lazy {
+        val m = HashMap<String, Int>(); UNITS.forEachIndexed { i, w -> m[w] = i }; m["un"] = 1; m["mezzanotte"] = 0; m["mezzogiorno"] = 12
+        listOf("venti" to 20, "trenta" to 30, "quaranta" to 40, "cinquanta" to 50).forEach { (t, v) -> m[t] = v; for (u in 1..9) m[(if (u == 1 || u == 8) t.dropLast(1) else t) + UNITS[u]] = v + u }
+        m
+    }
+    private fun digits(c: String) = Fuzzy.clean(c).split(" ").joinToString(" ") { WORDNUM[it]?.toString() ?: it }
+
+    /** "alle 7 e mezza", "alle sette e un quarto", "18:30" -> (ora, minuti) */
+    fun parseClock(raw: String): Pair<Int, Int>? {
+        val d = digits(raw); val pm = Regex("\\b(pomeriggio|sera|stasera|notte)\\b").containsMatchIn(d)
+        fun fix(h: Int) = if (pm && h in 1..11) h + 12 else h
+        Regex("(\\d{1,2})[:.](\\d{2})").find(raw)?.let { return fix(it.groupValues[1].toInt()) to it.groupValues[2].toInt() }
+        Regex("\\b(?:alle|all|ore|per le)\\s*(\\d{1,2})\\s*(?:e\\s*(mezza|mezzo|1 quarto|3 quarti|\\d{1,2})|meno\\s*(1 quarto))?").find(d)?.let { m ->
+            var h = fix(m.groupValues[1].toInt()); var mi = 0
+            when (val x = m.groupValues[2]) { "mezza", "mezzo" -> mi = 30; "1 quarto" -> mi = 15; "3 quarti" -> mi = 45; "" -> {}; else -> mi = x.toInt() }
+            if (m.groupValues[3].isNotEmpty()) { h -= 1; mi = 45 }
+            if (h in 0..23 && mi in 0..59) return (if (h < 0) 23 else h) to mi
+        }
+        return null
+    }
+
+    /** Istante futuro descritto in testo: "tra 20 minuti", "alle 18", "domani alle 8". */
+    fun parseWhen(raw: String): Long? {
+        val d = digits(raw); val now = Calendar.getInstance()
+        Regex("\\btra\\s+(\\d+)\\s*(ore|ora|minuti|minuto|min|secondi)").find(d)?.let { m ->
+            val n = m.groupValues[1].toLong(); return now.timeInMillis + n * when { m.groupValues[2].startsWith("or") -> 3_600_000L; m.groupValues[2].startsWith("s") -> 1000L; else -> 60_000L } }
+        if (Regex("\\btra\\s+mezz").containsMatchIn(d)) return now.timeInMillis + 1_800_000L
+        val (h, mi) = parseClock(raw) ?: return null
+        val t = (now.clone() as Calendar).apply { set(Calendar.HOUR_OF_DAY, h); set(Calendar.MINUTE, mi); set(Calendar.SECOND, 0) }
+        if (Regex("\\bdomani\\b").containsMatchIn(d)) t.add(Calendar.DAY_OF_YEAR, 1)
+        else if (t.timeInMillis <= now.timeInMillis) { if (h < 12 && t.timeInMillis + 43_200_000L > now.timeInMillis && !Regex("\\b(mattina|domattina)\\b").containsMatchIn(d)) t.add(Calendar.HOUR_OF_DAY, 12) else t.add(Calendar.DAY_OF_YEAR, 1) }
+        return t.timeInMillis
     }
 
     private fun clip(s: String, vararg junk: String) = s.replace(Regex("(?i)\\b(" + junk.joinToString("|") + ")\\b"), " ").replace(Regex("\\s+"), " ").trim()
@@ -58,6 +109,41 @@ object Parser {
             return parseTimer(c)
         }
         if (has("sveglia") && has("annulla", "cancella", "elimina", "ferma")) return Cmd.CancelTimers
+
+
+        // TORCIA / VOLUME / PANNELLI
+        if (has("torcia", "flash") || exact("lampadina del telefono", "luce del telefono")) return Cmd.Torch(!has("spegni", "disattiva", "chiudi"))
+        if (has("volume")) { val n = Regex("(\\d{1,3})").find(digits(c))?.groupValues?.get(1)?.toIntOrNull()
+            return Cmd.Volume(when { has("alza", "aumenta", "più forte", "piu forte") -> "up"; has("abbassa", "diminuisci", "più basso", "piu basso") -> "down"; else -> "set" }, if (has("alza", "abbassa", "aumenta", "diminuisci")) null else n) }
+        if (has("muto", "silenzioso", "silenzia")) return Cmd.Volume("mute", null)
+        if (has("wifi") || has("bluetooth")) return Cmd.Panel(if (has("bluetooth")) "bluetooth" else "wifi")
+
+        // SVEGLIA
+        if (has("sveglia", "svegliami", "svegliarmi") || exact("metti la sveglia")) {
+            if (has("annulla", "cancella", "elimina", "togli", "disattiva", "spegni")) return Cmd.CancelAlarms
+            parseClock(raw)?.let { (h, m) -> return Cmd.Alarm(h, m, "") }
+            parseWhen(raw)?.let { t -> val cal = Calendar.getInstance().apply { timeInMillis = t }; return Cmd.Alarm(cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE), "") }
+        }
+
+        // MEMORIA ("ricorda che mia moglie si chiama Anna")
+        Regex("(?i)^(?:ricorda(?:ti)? che|tieni a mente che|impara che|ricorda che|segnati che)\\s+(.+)$").find(raw)?.let { return Cmd.Remember(it.groupValues[1].trim()) }
+
+        // PROMEMORIA con orario ("ricordami alle 18 di chiamare Mario", "ricordami tra 10 minuti di ...")
+        if (Regex("^(ricordami|ricorda|promemoria|avvisami)\\b").containsMatchIn(c)) {
+            val whenMs = parseWhen(raw)
+            if (whenMs != null) {
+                val text = raw.replace(Regex("(?i)^(ricordami|ricorda|promemoria|avvisami)\\s*"), "").replace(Regex("(?i)\\b(tra|alle|all'|domani|stasera|stamattina|oggi)\\s*[0-9a-zàèéìòù:.]*\\s*(ore|ora|minuti|minuto|min|secondi|e mezza|e mezzo)?"), " ").replace(Regex("(?i)\\bdi\\b"), " ").replace(Regex("\\s+"), " ").trim()
+                return Cmd.Remind(whenMs, text.ifBlank { "Promemoria" })
+            }
+        }
+
+        // FOTOCAMERA istantanea
+        if ((has("foto", "fotografia", "selfie", "scatta", "scattami", "fotografami", "autoscatto")) && !has("galleria", "album") && Regex("\\b(scatta|scattami|fai|fammi|fa|fotografami|prendi|selfie|autoscatto)").containsMatchIn(c)) return Cmd.Camera(has("selfie", "frontale", "me stess", "autoscatto"))
+
+        // TV / FIRE STICK
+        if (exact("sulla tv", "sulla televisione", "sulla fire", "firestick", "fire stick", "fire tv", "sul televisore", "in tv")) {
+            return Cmd.Tv(clip(raw, "apri", "metti", "avvia", "lancia", "fai partire", "sulla", "sul", "tv", "televisione", "televisore", "fire", "stick", "firestick", "su", "in", "la", "il", "lo"))
+        }
 
         // CERCA / METTI in un'app
         Regex("(?i)^(?:cerca|trova|ricerca|cercami|cerchi)\\s+(?:su|in|nel|nella|nello|sul|sullo|sulla|da|con|dentro)\\s+(?:l'|lo |la |il )?(.+)$").find(raw)?.let { m ->
@@ -90,6 +176,22 @@ object Parser {
         }
         if (Regex("^(ricordami|ricorda|segna|annota)\\b").containsMatchIn(c)) return Cmd.AddNote(raw.replace(Regex("(?i)^(ricorda(mi)?|segna|annota)\\s*(di|che)?\\s*"), "").trim())
 
+
+        // EMAIL
+        if (has("mail", "email", "e-mail", "posta") && has("manda", "invia", "scrivi", "scrivere", "mandare", "spedisci")) {
+            val m = Regex("(?i)\\b(?:a|ad)\\s+(.+?)\\s+(?:con )?(?:oggetto|titolo)\\s+(.+?)\\s+(?:e )?(?:dicendo|testo|scrivendo|con scritto|messaggio)\\s+(.+)$").find(raw)
+            if (m != null) return Cmd.Email(m.groupValues[1].trim(), m.groupValues[2].trim(), m.groupValues[3].trim())
+            val m2 = Regex("(?i)\\b(?:a|ad)\\s+(.+?)\\s*(?:,|:|\\bdicendo\\b|\\bscrivendo\\b|\\bcon scritto\\b|\\bil testo\\b|\\bche\\b)\\s*(.+)$").find(raw)
+            if (m2 != null) return Cmd.Email(m2.groupValues[1].trim(), "", m2.groupValues[2].trim())
+            return Cmd.Email(Regex("(?i)\\b(?:a|ad)\\s+([A-Za-zÀ-ÿ' ]+?)\\s*$").find(raw)?.groupValues?.get(1).orEmpty(), "", "")
+        }
+
+        // GIORNATA
+        if (exact("buongiorno", "briefing", "riassunto della giornata", "cosa devo fare oggi", "com'è la giornata", "com'e la giornata")) return Cmd.Briefing
+        if ((has("agenda", "impegni", "appuntamenti", "calendario") || exact("cosa ho domani", "cosa ho oggi", "che ho domani", "che ho oggi")) && !has("aggiungi", "crea", "metti", "inserisci", "nuovo", "nuova")) return Cmd.Agenda(if (has("domani")) 1 else 0)
+        if (exact("ho parcheggiato", "parcheggiato qui", "ricorda dove parcheggio", "ricorda il parcheggio", "segna il parcheggio")) return Cmd.Parking(true)
+        if (exact("dov'è la macchina", "dove ho parcheggiato", "dov'è la mia auto", "dov'e la macchina", "dov'e la mia auto", "portami alla macchina", "trova la macchina", "trova l'auto", "portami all'auto")) return Cmd.Parking(false)
+
         // MESSAGGI / CHIAMATE
         val msgRe = Regex("(?i)\\b(?:a|ad)\\s+(.+?)\\s*(?:,|:|\\bdicendo(?:gli|le)?(?: che)?\\b|\\bscrivendo(?:gli|le)?\\b|\\bcon scritto\\b|\\bil testo\\b|\\be (?:scrivi|dì|dille|digli)(?: che)?\\b|\\bche\\b)\\s*(.+)$")
         if (has("whatsapp", "wapp", "uozap", "messaggio", "sms") || Regex("(?i)^(scrivi|manda|invia|mandi|scrivigli|mandagli|dì|dillo)\\s+a\\b").containsMatchIn(raw)) {
@@ -119,13 +221,13 @@ object Parser {
 
         if (has("meteo", "piove", "previsioni", "pioggia", "temperatura") || exact("che tempo")) {
             val city = Regex("(?i)\\b(?:a|di|su|per|in)\\s+([A-Za-zÀ-ÿ' ]+?)\\s*(?:oggi|domani|adesso|stasera|stamattina)?\\s*$").find(raw)?.groupValues?.get(1).orEmpty()
-            return Cmd.Weather(city)
+            return Cmd.Weather(city.replace(Regex("(?i)\\b(domani|dopodomani|oggi)\\b"), "").trim(), if (has("dopodomani")) 2 else if (has("domani")) 1 else 0)
         }
         if (has("naviga", "portami", "indicazioni", "navigatore") || exact("strada per", "come arrivo")) return Cmd.Navigate(clip(raw, "naviga", "portami", "indicazioni", "strada", "verso", "a", "al", "alla", "in", "fino a", "per", "da", "navigatore", "come", "arrivo"))
         if (has("calendario", "evento", "appuntamento", "promemoria")) return Cmd.Calendar(clip(raw, "aggiungi", "crea", "metti", "inserisci", "evento", "appuntamento", "calendario", "al", "nel", "un", "promemoria"))
         if (Regex("^(apri|avvia|lancia|vai su|vai in|apri l'app|aprimi)\\b").containsMatchIn(c)) return Cmd.OpenApp(clip(raw, "apri", "avvia", "lancia", "vai", "su", "in", "l'app", "app", "aprimi", "l'applicazione", "applicazione"))
 
-        if (has("chiedi", "domanda", "spiegami", "dimmi") || exact("cosa ne pensi", "cos'è", "chi è", "come si", "perché", "quanto")) return Cmd.AskAi(raw.replace(Regex("(?i)^(chiedi (a|agli) (ai|tutti|gemini|chatgpt|claude))\\s*"), "").trim())
+        if (Regex("^chiedi (a|agli|alle|a tutte|a tutti)").containsMatchIn(c) || exact("confronta le ai", "chiedi a tutte le ai")) return Cmd.AskAi(raw.replace(Regex("(?i)^(chiedi (a|agli) (ai|tutti|gemini|chatgpt|claude))\\s*"), "").trim())
         return Cmd.Unknown
     }
 

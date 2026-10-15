@@ -8,29 +8,13 @@ import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
-import android.speech.tts.TextToSpeech
 import java.util.Locale
 
 class Voice(private val ctx: Context) {
     private var rec: SpeechRecognizer? = null
-    private var tts: TextToSpeech? = null
     private val h = Handler(Looper.getMainLooper())
     private var timeout: Runnable? = null
     var listening = false; private set
-
-    init {
-        tts = TextToSpeech(ctx) { st ->
-            if (st == TextToSpeech.SUCCESS) {
-                val t = tts ?: return@TextToSpeech
-                t.language = Locale.ITALIAN
-                // voce italiana migliore disponibile (qualità più alta, preferendo le "neural")
-                val best = t.voices?.filter { it.locale.language == "it" && !it.features.contains("notInstalled") }
-                    ?.sortedWith(compareByDescending<android.speech.tts.Voice> { it.quality }.thenByDescending { it.name.contains("neural", true) || it.name.contains("-x-iti", true) || it.name.contains("-x-itd", true) })?.firstOrNull()
-                if (best != null) t.voice = best
-                t.setSpeechRate(1.0f); t.setPitch(1.0f)
-            }
-        }
-    }
 
     /** cbFinal riceve tutte le alternative del riconoscimento (la migliore per prima). */
     fun listen(cbPartial: (String) -> Unit, cbFinal: (List<String>) -> Unit, cbError: (String) -> Unit, cbLevel: (Float) -> Unit, maxMs: Long = 9000) {
@@ -67,6 +51,6 @@ class Voice(private val ctx: Context) {
         rec = null
     }
 
-    fun say(s: String) { if (s.isNotBlank()) tts?.speak(s, TextToSpeech.QUEUE_FLUSH, null, "nv") }
-    fun release() { stop(); tts?.shutdown(); tts = null }
+    fun say(s: String) = Speaker.say(ctx, s)
+    fun release() { stop() }
 }
