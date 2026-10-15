@@ -52,4 +52,15 @@ class Store(ctx: Context) {
         saveNotes(keep); return all.size - keep.size
     }
     fun searchNotes(q: String) = notes().filter { it.second.lowercase().contains(q.lowercase().trim()) }
+
+    // Timer: lista di (id, fine)
+    fun timers(): List<Pair<Long, Long>> { val a = try { JSONArray(p.getString("timers_json", "[]")) } catch (_: Exception) { JSONArray() }
+        return (0 until a.length()).map { val o = a.getJSONObject(it); o.getLong("id") to o.getLong("at") }.filter { it.second > System.currentTimeMillis() - 60_000 } }
+    private fun saveTimers(l: List<Pair<Long, Long>>) { val a = JSONArray(); l.forEach { a.put(JSONObject().put("id", it.first).put("at", it.second)) }; p.edit().putString("timers_json", a.toString()).apply() }
+    fun addTimer(id: Long, at: Long) = saveTimers(timers() + (id to at))
+    fun removeTimer(id: Long) = saveTimers(timers().filter { it.first != id })
+    fun clearTimers() = saveTimers(emptyList())
+    var userName: String
+        get() = p.getString("user_name", "").orEmpty()
+        set(v) = p.edit().putString("user_name", v.trim()).apply()
 }

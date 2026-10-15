@@ -38,11 +38,9 @@ class HomeAssistant(private val s: Store) {
     fun control(on: Boolean, target: String, all: Boolean): String {
         val list = entities()
         val sel = if (all && target.isBlank()) list else {
-            val q = norm(target); val words = q.split(" ").filter { it.length > 2 }
-            list.map { e -> val n = norm(e.name) + " " + norm(e.id.substringAfter('.').replace('_', ' '))
-                e to (if (q.isNotEmpty() && n.contains(q)) 100 else words.count { it in n } * 10) }
-                .filter { it.second > 0 }.sortedByDescending { it.second }
-                .let { r -> if (all) r.map { it.first } else r.take(1).map { it.first } }
+            val scored = list.map { e -> e to maxOf(Fuzzy.sim(target, e.name), Fuzzy.sim(target, e.id.substringAfter('.').replace('_', ' '))) }
+                .filter { it.second >= 0.6 }.sortedByDescending { it.second }
+            if (all) scored.filter { it.second >= 0.6 }.map { it.first } else scored.take(1).map { it.first }
         }
         if (sel.isEmpty()) throw IllegalStateException("Non trovo \"$target\" in Home Assistant")
         sel.forEach { req("/api/services/${it.id.substringBefore('.')}/${if (on) "turn_on" else "turn_off"}", "POST", JSONObject().put("entity_id", it.id)) }
