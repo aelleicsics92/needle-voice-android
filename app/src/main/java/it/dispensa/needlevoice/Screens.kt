@@ -226,7 +226,9 @@ fun SettingsScreen(a: Assistant, openAppSettings: () -> Unit, openAccess: () -> 
     var speak by remember { mutableStateOf(s.speakReplies) }; var msg by remember { mutableStateOf("") }
     var tick by remember { mutableIntStateOf(0) }
     fun save() { s.userName = name; s.haUrl = url; s.haToken = tok; s.city = city; s.speakReplies = speak; msg = "Salvato ✓" }
-    fun addKey(k: String) { val key = k.trim(); val p = Llm.detect(key); if (p == null) msg = "Chiave non riconosciuta" else { llm.setKey(p, key); paste = ""; msg = "$p collegato ✓"; tick++ } }
+    fun addKey(k: String) { val key = k.trim().replace("\\s".toRegex(), "").trim('"'); val p = Llm.detect(key)
+        if (p != null) { llm.setKey(p, key); paste = ""; msg = "$p collegato ✓"; tick++ }
+        else { msg = "Verifico la chiave…"; thread { val q = llm.probe(key); if (q != null) { llm.setKey(q, key); paste = ""; msg = "$q collegato ✓" } else msg = "Chiave non valida o rete assente"; tick++ } } }
     Page {
         Spacer(Modifier.height(26.dp)); GradText("Opzioni", 44)
         SectionLabel("Tu"); GField(name, { name = it }, "Il tuo nome"); Spacer(Modifier.height(8.dp)); GField(city, { city = it }, "Città per il meteo", onEnter = { save() })
@@ -237,7 +239,7 @@ fun SettingsScreen(a: Assistant, openAppSettings: () -> Unit, openAccess: () -> 
         }
         SectionLabel("Cervello (modelli gratuiti)")
         key(tick) { Text(if (llm.active().isEmpty()) "Nessun modello collegato" else llm.active().joinToString(" · ") { "$it ✓" }, color = if (llm.active().isEmpty()) P.Peach else P.Mint, fontSize = 14.sp, modifier = Modifier.padding(bottom = 8.dp)) }
-        GField(paste, { paste = it; if (Llm.detect(it.trim()) != null && it.trim().length > 20) addKey(it) }, "Incolla qui una chiave: riconosco il provider da sola", secret = true, onEnter = { addKey(paste) })
+        GField(paste, { paste = it; if (it.trim().length >= 30) addKey(it) }, "Incolla qui una chiave: riconosco il provider da sola", secret = true, onEnter = { addKey(paste) })
         Spacer(Modifier.height(8.dp))
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Llm.SIGNUP.forEach { (n, u) -> Chip("Ottieni $n") { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(u)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } }

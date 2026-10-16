@@ -39,6 +39,20 @@ class Llm(private val s: Store) {
         return t
     }
 
+    /** Prova la chiave sui provider (per formati non riconosciuti dal prefisso). */
+    fun probe(k: String): String? {
+        val order = listOf("Gemini", "Groq", "OpenRouter", "Mistral", "OpenAI")
+        for (p in order) {
+            try {
+                if (p == "Gemini") http("https://generativelanguage.googleapis.com/v1beta/models?pageSize=1&key=$k", emptyMap(), null, 15000)
+                else http("${base(p)}/models", mapOf("Authorization" to "Bearer $k"), null, 15000)
+                if (p == "OpenRouter") continue
+                return p
+            } catch (_: Exception) { }
+        }
+        return null
+    }
+
     /** Elenco id modelli del provider (in cache). */
     private fun models(p: String): List<String> = cache.getOrPut(p) {
         try {
